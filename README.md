@@ -1,2 +1,3 @@
-# three
-一些threejs案例
+# Vue 3 + Vite
+
+一些 Threejs 的学习案例
