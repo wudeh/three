@@ -96,7 +96,7 @@ const mouseEvent = () => {
     const resetAni = (v, j) => {
       if(v.position.z !== 0){
         const tween = new Tween(v.position, animationGroup)
-          .to({z: 0}, 300)
+          .to({z: 0}, 100)
           .onUpdate((o) => {
               v.position.set(0,0,o.z)
           })
@@ -104,19 +104,16 @@ const mouseEvent = () => {
             j.isHover = false;
           })
           .start()
-        provinceTween.push(tween)
       }
     }
     // 省份浮动动画
     const Ani = (v) => {
       const tween = new Tween(v.position, animationGroup)
-          .to({z: 5}, 300)
+          .to({z: 5}, 100)
           .onUpdate((o) => {
               v.position.set(0,0,o.z)
           })
           .start()
-          // .repeat(0)
-        provinceTween.push(tween)
     }
       
       // 判断是否有物体与射线相交
@@ -161,6 +158,7 @@ const mouseEvent = () => {
       .center([104.0, 37.5])
       .scale(80)
       .translate([0, 0]);
+
   // 创建地图对象并添加到场景中
   const createMap = (data, scene) => {
     // 初始化一个地图对象
@@ -282,7 +280,7 @@ const mouseEvent = () => {
   const loadMapData = (scene) => {
     THREE.Cache.enabled = true;
     const loader = new THREE.FileLoader();
-    loader.load("https://hv.z.wiki/autoupload/20241128/T4OS/content.json", (data) => {
+    loader.load("json/content.json", (data) => {
       const jsondata = JSON.parse(data);
       createMap(jsondata, scene);
     })};
@@ -334,6 +332,9 @@ const mouseEvent = () => {
     }
     render();
     var controls = new OrbitControls(camera, renderer.domElement);
+    // 限制垂直旋转角度
+    controls.minPolarAngle = Math.PI / 4; // 45度
+    controls.maxPolarAngle = Math.PI / 1; // 限制最大仰角
     // 已经通过requestAnimationFrame(render);周期性执行render函数，没必要再通过监听鼠标事件执行render函数
     // controls.addEventListener('change', render)
 
@@ -384,7 +385,7 @@ const init = () => {
 
     // 坐标轴 辅助
     var axes = new THREE.AxesHelper(700)
-    scene.add(axes)
+    // scene.add(axes)
 
     
     createCss3DRender()
@@ -468,88 +469,7 @@ onMounted(() => {
     width: 100%;
     height: 100vh;
 }
-:deep(#myDialog) {
-    font-size: 8px;
 
-    .box-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        animation: moveUpDown 3s infinite;
-
-        .title {
-            font-family: Source Han Sans CN, Source Han Sans CN;
-            font-weight: bold;
-            color: #fff;
-        }
-
-        .label-text {
-            font-family: Source Han Sans CN, Source Han Sans CN;
-            color: #ccddff;
-
-            .label-value-green {
-                color: #5cdd2e;
-                font-weight: bold;
-            }
-            .label-value-red {
-                color: #ff4a4a;
-                font-weight: bold;
-            }
-        }
-
-        .tip-green {
-            width: 80px;
-            height: 40px;
-            padding: 5px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            background-color: rgba(22, 29, 38, 0.5);
-            opacity: 0.9;
-            border: 1px solid #329550;
-            box-shadow: inset 0px 0px 15px 0px #329550;
-        }
-
-        .tip-red {
-            width: 80px;
-            height: 40px;
-            padding: 5px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            background-color: rgba(22, 29, 38, 0.5);
-            opacity: 0.9;
-            border: 1px solid #882c2c;
-            box-shadow: inset 0px 0px 15px 0px #882c2c;
-        }
-
-        .line-green {
-            width: 1px;
-            height: 35px;
-            background: linear-gradient(to bottom, rgba(28, 107, 51, 0.3), rgb(20, 195, 93), rgba(1, 165, 75, 0.89));
-        }
-
-        .line-red {
-            width: 1px;
-            height: 35px;
-            background: linear-gradient(to bottom, rgba(123, 44, 28, 0.3), rgba(255, 82, 82, 1), rgba(255, 48, 48, 0.89));
-        }
-    }
-}
- 
-/* // 动画 */
-@keyframes moveUpDown {
-	0% {
-		transform: translateY(0);
-	}
-	50% {
-		transform: translateY(8px);
-	}
-	100% {
-		transform: translateY(0);
-	}
-}
 
 .menu {
     position: absolute;

@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>下雨水坑</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: sans-serif;
+            color: white;
+            background-color: #111;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: -1;
+            filter: contrast(1.2) saturate(1.1) brightness(1.1);
+        }
+
+        .grading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #start-button {
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #ffffff;
+            color: #000000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 0;
+            width: 12rem;
+        }
+
+        .ui-container {
+            position: absolute;
+            bottom: 7rem;
+            right: 1rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Overlays for color grading -->
+    <div class="grading-overlay" style="
+        background: radial-gradient(
+          circle at center,
+          rgba(0, 0, 0, 0) 50%,
+          rgba(0, 0, 0, 1) 100%
+        );
+      "></div>
+    <div class="grading-overlay" style="
+        background: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0) 50%,
+          rgba(0, 0, 255, 0.2) 100%
+        );
+        mix-blend-mode: overlay;
+      "></div>
+    <div class="grading-overlay" style="
+        background: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0) 40%,
+          rgba(255, 222, 165, 0.2) 100%
+        );
+      "></div>
+
+    <!-- UI Elements -->
+    <div class="ui-container">
+        <button id="start-button">点击开始下雨</button>
+    </div>
+
+    <!-- Dependencies -->
+    <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.177.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.177.0/examples/jsm/",
+          "gl-noise/build/glNoise.m": "https://unpkg.com/gl-noise@1.6.1/build/glNoise.m.js",
+          "three-custom-shader-material": "https://unpkg.com/three-custom-shader-material@6.3.7/vanilla/three-custom-shader-material.es.js",
+          "lil-gui": "https://unpkg.com/lil-gui@0.19.2/dist/lil-gui.esm.js"
+        }
+      }
+    </script>
+
+    <!-- Howler.js via script tag -->
+    <script src="https://unpkg.com/howler@2.2.3/dist/howler.min.js"></script>
+
+    <!-- Main Application Logic -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { patchShaders } from 'gl-noise/build/glNoise.m';
+        import CustomShaderMaterial from 'three-custom-shader-material';
+        import { GUI } from 'lil-gui';
+
+        let rainStarted = false;
+
+        // --- Debug GUI ---
+        const gui = new GUI();
+        const params = {
+            autoRotate: false,
+            rainAmount: 0.0,
+            // Bloom
+            bloomStrength: 0.1,
+            bloomRadius: 0.3,
+            bloomThreshold: 0.7,
+            // Puddles
+            rippleScale: 40.0,
+            rippleStrength: 0.25,
+            noiseStrength: 0.02,
+            // Lighting
+            lightIntensity: 1.0,
+            // Rain
+            rainOpacity: 0.15,
+            rainSpeed: 3.0,
+            rainDropSize: 0.05,
+            rainBlurSteps: 5.0
+        };
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            powerPreference: "high-performance"
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // --- Camera and Controls ---
+        camera.position.set(0.713725247365501, 0.3394033648663526, 0.32126638003592926);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.autoRotate = false;
+        controls.autoRotateSpeed = -0.25;
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.update();
+
+        // --- Lighting & Environment ---
+        const ambientLight = new THREE.AmbientLight(0x333333, 0.5);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffee, params.lightIntensity);
+        directionalLight.position.set(5, 5, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 20;
+        directionalLight.shadow.camera.left = -5;
+        directionalLight.shadow.camera.right = 5;
+        directionalLight.shadow.camera.top = 5;
+        directionalLight.shadow.camera.bottom = -5;
+        scene.add(directionalLight);
+
+        new RGBELoader().load('./public/shanghai_bund_2k.hdr', (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            scene.background = new THREE.Color(0x111111);
+            scene.environment = texture;
+        });
+
+        // --- Floor ---
+        const textureLoader = new THREE.TextureLoader();
+        const maps = {
+            map: textureLoader.load('./public/road/aerial_asphalt_01_diff_2k.jpg'),
+            normalMap: textureLoader.load('./public/road/aerial_asphalt_01_nor_gl_2k.jpg'),
+            roughnessMap: textureLoader.load('./public/road/aerial_asphalt_01_rough_2k.jpg'),
+            aoMap: textureLoader.load('./public/road/aerial_asphalt_01_ao_2k.jpg'),
+        };
+
+        for (const key in maps) {
+            maps[key].wrapS = maps[key].wrapT = THREE.RepeatWrapping;
+            maps[key].repeat.set(1, 1);
+        }
+
+        const rainProgressRef = { current: 0 };
+
+        // --- Vertex Shader ---
+        const vertexShader = /* glsl */`
+			varying vec3 vPosition;
+			varying vec2 vUv;
+            varying vec3 vWorldPosition;
+
+			void main() {
+				vPosition = position;
+				vUv = uv;
+                vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+			}
+		`;
+
+        // --- Fragment Shader ---
+        const fragmentShader = patchShaders(/* glsl */`
+			uniform float uTime;
+            uniform float uRainFactor;
+
+            uniform float uRippleScale;
+            uniform float uRippleStrength;
+            uniform float uPuddleNoiseStrength;
+
+			varying vec3 vPosition;
+			varying vec2 vUv;
+            varying vec3 vWorldPosition;
+
+			vec3 csm_PuddleNormal;
+			float csm_PuddleNormalMask;
+
+            #define MAX_RADIUS 2
+            #define DOUBLE_HASH 0
+            #define HASHSCALE1 .1031
+            #define HASHSCALE3 vec3(.1031, .1030, .0973)
+
+            float mapLinear(float x, float a1, float a2, float b1, float b2) {
+                return b1 + (x - a1) * (b2 - b1) / (a2 - a1);
+            }
+
+            float hash12(vec2 p) {
+                vec3 p3  = fract(vec3(p.xyx) * HASHSCALE1);
+                p3 += dot(p3, p3.yzx + 19.19);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            vec2 hash22(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * HASHSCALE3);
+                p3 += dot(p3, p3.yzx+19.19);
+                return fract((p3.xx+p3.yz)*p3.zy);
+            }
+
+            vec3 getRipples(vec2 uv) {
+                vec2 p0 = floor(uv);
+
+                float time = uTime * 3.0;
+
+                vec2 circles = vec2(0.);
+                for (int j = -MAX_RADIUS; j <= MAX_RADIUS; ++j) {
+                    for (int i = -MAX_RADIUS; i <= MAX_RADIUS; ++i) {
+                        vec2 pi = p0 + vec2(i, j);
+                        #if DOUBLE_HASH
+                        vec2 hsh = hash22(pi);
+                        #else
+                        vec2 hsh = pi;
+                        #endif
+                        vec2 p = pi + hash22(hsh);
+
+                        float t = fract(0.3*time + hash12(hsh));
+                        vec2 v = p - uv;
+                        float d = length(v) - (float(MAX_RADIUS) + 1.)*t;
+
+                        float h = 1e-3;
+                        float d1 = d - h;
+                        float d2 = d + h;
+                        float p1 = sin(31.*d1) * smoothstep(-0.6, -0.3, d1) * smoothstep(0., -0.3, d1);
+                        float p2 = sin(31.*d2) * smoothstep(-0.6, -0.3, d2) * smoothstep(0., -0.3, d2);
+                        circles += 0.5 * normalize(v) * ((p2 - p1) / (2. * h) * (1. - t) * (1. - t));
+                    }
+                }
+                circles /= float((MAX_RADIUS*2+1)*(MAX_RADIUS*2+1));
+                float intensity = mix(0.01, 0.15, smoothstep(0.1, 0.6, abs(fract(0.05*time + 0.5)*2.-1.)));
+                vec3 n = vec3(circles, sqrt(1. - dot(circles, circles)));
+                return n;
+            }
+
+            float getPuddle(vec2 uv) {
+                gln_tFBMOpts puddleNoiseOpts = gln_tFBMOpts(1.0, 0.5, 2.0, 0.5, 1.0, 3, false, false);
+                float puddleNoise = gln_sfbm((uv + vec2(3.0, 0.0)) * 0.2, puddleNoiseOpts);
+                puddleNoise = gln_normalize(puddleNoise);
+                puddleNoise = smoothstep(0.0, 0.7, puddleNoise);
+                return puddleNoise;
+            }
+
+            float sdCircle(vec2 p, float radius) {
+                return length(p) - radius;
+            }
+
+
+			vec3 perturbNormal(vec3 inputNormal, vec3 noiseNormal, float strength) {
+				vec3 noiseNormalOrthogonal = noiseNormal - (dot(noiseNormal, inputNormal) * inputNormal);
+				vec3 noiseNormalProjectedBump = mat3(csm_internal_vModelViewMatrix) * noiseNormalOrthogonal;
+				return normalize(inputNormal - (noiseNormalProjectedBump * strength));
+			}
+
+			void main() {
+                float roughnessProgress = smoothstep(0.0, 0.75, uRainFactor);
+                roughnessProgress = clamp(roughnessProgress, 0.0, 1.0);
+
+                float normalProgress = smoothstep(0.75, 1.0, uRainFactor);
+                normalProgress = clamp(normalProgress, 0.0, 1.0);
+
+				// vec4 puddleTexColor = texture2D(uRippleTexture, vUv);
+				float puddleNoise = getPuddle(vPosition.xy * 15.0);
+
+				// // Normals
+				csm_PuddleNormal = vNormal;
+				csm_PuddleNormalMask = smoothstep(0.2, 1.0, puddleNoise) * normalProgress;
+				// csm_PuddleNormalMask = smoothstep(0.0, 1.0, puddleNoise);
+
+				// Generate noisy normals
+				gln_tFBMOpts noiseNormalNoiseOpts = gln_tFBMOpts(1.0, 0.5, 2.0, 0.5, 1.0, 4, false, false);
+				vec3 noiseNormalPosition = vPosition * 10.0;
+				noiseNormalPosition.y += uTime * 1.0;
+				float noiseX = gln_sfbm(noiseNormalPosition, noiseNormalNoiseOpts);
+				float noiseY = gln_sfbm(noiseNormalPosition + 0.5, noiseNormalNoiseOpts);
+				float noiseZ = gln_sfbm(noiseNormalPosition + 1.0, noiseNormalNoiseOpts);
+				vec3 normalNoise = vec3(noiseX, noiseY, noiseZ);
+				normalNoise = normalize(normalNoise);
+
+				// // Peturb puddle normals
+				csm_PuddleNormal = perturbNormal(csm_PuddleNormal, normalNoise, uPuddleNoiseStrength);
+
+				// // Roughness
+                float prevRoughness = csm_Roughness;
+				csm_Roughness = 1.0 - csm_PuddleNormalMask;
+				csm_Roughness = clamp(csm_Roughness, 0.0, 0.1);
+                csm_Roughness = mix(prevRoughness, csm_Roughness, roughnessProgress);
+				// csm_FragColor = vec4(vec3(csm_Roughness), 1.0);
+
+				// // Ripples
+				vec3 rippleNormals = getRipples(vPosition.xy * uRippleScale);
+				csm_PuddleNormal = perturbNormal(csm_PuddleNormal, rippleNormals, uRippleStrength * uRainFactor);
+      
+                float bumpMask = clamp(csm_Roughness, 0.0, 1.0);
+                csm_Bump = rippleNormals * bumpMask * normalProgress;
+
+                float circle = 1. - sdCircle(vWorldPosition.xz, 0.2);
+                circle = smoothstep(0.7, 0.85, circle); 
+
+                csm_DiffuseColor.a = circle;
+			}
+		`);
+
+        const patchMap = {
+            "*": {
+                "#include <normal_fragment_maps>": `
+				#include <normal_fragment_maps>
+				normal = mix(normal, csm_PuddleNormal, csm_PuddleNormalMask);
+			`,
+            },
+        };
+
+        const uniforms = {
+            uTime: { value: 0 },
+            uRainFactor: { value: 0 },
+            uRippleScale: { value: params.rippleScale },
+            uRippleStrength: { value: params.rippleStrength },
+            uPuddleNoiseStrength: { value: params.noiseStrength },
+        };
+
+        // Create a CustomShaderMaterial using local module
+        const puddleMaterial = new CustomShaderMaterial({
+            baseMaterial: THREE.MeshPhysicalMaterial,
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: uniforms,
+            patchMap: patchMap,
+            transparent: true,
+            ...maps
+        });
+
+        const floorGeometry = new THREE.PlaneGeometry(1, 1);
+        const floor = new THREE.Mesh(floorGeometry, puddleMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // --- Post-processing ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight), 
+            params.bloomStrength, 
+            params.bloomRadius, 
+            params.bloomThreshold
+        );
+        composer.addPass(bloomPass);
+        const outputPass = new OutputPass();
+        composer.addPass(outputPass);
+        
+        // --- Rain Drops ---
+        let rain = null;
+        const rainCount = 2000;
+        
+        const rainVertexShader = /* glsl */`
+            varying vec2 vUv;
+            
+            void main() {
+                vUv = uv;
+            }
+        `;
+        
+        const rainFragmentShader = /* glsl */`
+            uniform float uRainProgress;
+            uniform float uRainOpacity;
+            uniform float uRainDropSize;
+            uniform float uRainBlurSteps;
+            varying vec2 vUv;
+
+            float sdUnevenCapsule( vec2 p, float r1, float r2, float h ) {
+                p.x = abs(p.x);
+                float b = (r1-r2)/h;
+                float a = sqrt(1.0-b*b);
+                float k = dot(p,vec2(-b,a));
+                if( k < 0.0 ) return length(p) - r1;
+                if( k > a*h ) return length(p-vec2(0.0,h)) - r2;
+                return dot(p, vec2(a,b) ) - r1;
+            }
+            
+            float blur(float steps) {
+                vec2 coord = vUv - 0.5;
+                coord *= 10.0;
+                float total = 0.0;
+                for (float i = 0.0; i < steps; i++) {
+                    float dropletDistance = sdUnevenCapsule(coord, uRainDropSize, 0.0, 2.0);
+                    dropletDistance = 1.0 - smoothstep(0.0, 0.05, dropletDistance);
+                    total += dropletDistance;
+                    coord += vec2(0.0, 0.2);
+                }
+                return total / steps;
+            }
+            
+            void main() {
+                float dropletDistance = blur(uRainBlurSteps);
+                float rainProgress = smoothstep(0.0, 0.5, uRainProgress);
+                rainProgress = clamp(rainProgress, 0.0, 1.0);
+                
+                csm_DiffuseColor = vec4(1.0, 1.0, 1.0, dropletDistance * uRainOpacity * rainProgress);
+            }
+        `;
+        
+        const rainUniforms = {
+            uRainProgress: uniforms.uRainFactor,
+            uRainOpacity: { value: params.rainOpacity },
+            uRainDropSize: { value: params.rainDropSize },
+            uRainBlurSteps: { value: params.rainBlurSteps }
+        };
+        
+        const rainMaterial = new CustomShaderMaterial({
+            baseMaterial: THREE.MeshBasicMaterial,
+            vertexShader: rainVertexShader,
+            fragmentShader: rainFragmentShader,
+            uniforms: rainUniforms,
+            transparent: true,
+            depthWrite: false
+        });
+        
+        const rainGeometry = new THREE.PlaneGeometry(0.2, 0.3);
+
+        function createRain() {
+            rain = new THREE.InstancedMesh(rainGeometry, rainMaterial, rainCount);
+            const dummy = new THREE.Object3D();
+            for (let i = 0; i < rainCount; i++) {
+                dummy.position.set(
+                    THREE.MathUtils.randFloatSpread(3),
+                    THREE.MathUtils.randFloat(-0.1, 5),
+                    THREE.MathUtils.randFloatSpread(3)
+                );
+                dummy.scale.setScalar(THREE.MathUtils.randFloat(0.1, 0.6));
+                dummy.updateMatrix();
+                rain.setMatrixAt(i, dummy.matrix);
+            }
+            scene.add(rain);
+        }
+
+        function updateRain(dt) {
+            if (!rain) return;
+            const dummy = new THREE.Object3D();
+            for (let i = 0; i < rain.count; i++) {
+                rain.getMatrixAt(i, dummy.matrix);
+                dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+                dummy.position.y -= dt * params.rainSpeed;
+                if (dummy.position.y <= 0) {
+                    dummy.position.set(
+                        THREE.MathUtils.randFloatSpread(1.5),
+                        THREE.MathUtils.randFloat(-0.1, 5),
+                        THREE.MathUtils.randFloatSpread(1.5)
+                    );
+                    dummy.scale.setScalar(THREE.MathUtils.randFloat(0.1, 0.6));
+                }
+                dummy.rotation.y = Math.atan2(camera.position.x - dummy.position.x, camera.position.z - dummy.position.z);
+                dummy.updateMatrix();
+                rain.setMatrixAt(i, dummy.matrix);
+            }
+            rain.instanceMatrix.needsUpdate = true;
+        }
+
+        // --- Audio ---
+        const rainSound = new Howl({
+            src: ['./public/sounds/light-rain-109591.mp3'],
+            loop: true, volume: 0,
+        });
+        const ambientSound = new Howl({
+            src: ['./public/sounds/night-ambience-17064.mp3'],
+            loop: true, volume: 0,
+        });
+
+        // --- Animation ---
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            uniforms.uTime.value += delta;
+            uniforms.uRainFactor.value = params.rainAmount;
+            
+            updateRain(delta);
+            controls.update();
+            composer.render();
+        }
+
+        // --- UI Interaction ---
+        const startButton = document.getElementById('start-button');
+        const uiContainer = document.querySelector('.ui-container');
+        startButton.addEventListener('click', () => {
+            uiContainer.style.opacity = 0;
+            setTimeout(() => uiContainer.style.display = 'none', 500);
+
+            rainStarted = true;
+            controls.autoRotate = true;
+            createRain();
+
+            rainSound.play();
+            ambientSound.play();
+
+            const duration = 5000;
+            const startTime = performance.now();
+            function updateRainFactor(currentTime) {
+                const elapsedTime = currentTime - startTime;
+                if (elapsedTime < duration) {
+                    const progress = elapsedTime / duration;
+                    params.rainAmount = progress;
+                    rainSound.volume(Math.min(progress, 0.5));
+                    ambientSound.volume(Math.min(progress ** 0.5, 1));
+                    requestAnimationFrame(updateRainFactor);
+                } else {
+                    params.rainAmount = 1.0;
+                    rainSound.volume(0.5);
+                    ambientSound.volume(1);
+                }
+            }
+            requestAnimationFrame(updateRainFactor);
+        });
+
+        // Add mouse move interaction for floor reflections
+        document.addEventListener('mousemove', (event) => {
+            if (!rainStarted) return;
+            const x = (event.clientX / window.innerWidth) * 2 - 1;
+            const y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Subtle effect - move directional light based on mouse position
+            directionalLight.position.x = 5 + x * 2;
+            directionalLight.position.z = 5 + y * 2;
+        });
+
+        // --- Window Resize ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- GUI Setup ---
+        gui.add(params, 'autoRotate').onChange((value) => {
+            controls.autoRotate = value;
+        });
+
+        const lightingFolder = gui.addFolder('Lighting');
+        lightingFolder.add(params, 'lightIntensity', 0, 2).name('Directional Light').onChange((value) => {
+            directionalLight.intensity = value;
+        });
+
+        const bloomFolder = gui.addFolder('Bloom');
+        bloomFolder.add(params, 'bloomStrength', 0, 1).name('Strength').onChange((value) => {
+            bloomPass.strength = value;
+        });
+        bloomFolder.add(params, 'bloomRadius', 0, 1).name('Radius').onChange((value) => {
+            bloomPass.radius = value;
+        });
+        bloomFolder.add(params, 'bloomThreshold', 0, 1).name('Threshold').onChange((value) => {
+            bloomPass.threshold = value;
+        });
+
+        const puddlesFolder = gui.addFolder('Puddles');
+        puddlesFolder.add(params, 'rainAmount', 0, 1).name('Rain Amount');
+        puddlesFolder.add(params, 'rippleScale', 10, 100).name('Ripple Scale').onChange((value) => {
+            uniforms.uRippleScale.value = value;
+        });
+        puddlesFolder.add(params, 'rippleStrength', 0, 1).name('Ripple Strength').onChange((value) => {
+            uniforms.uRippleStrength.value = value;
+        });
+        puddlesFolder.add(params, 'noiseStrength', 0, 0.1).name('Puddle Noise').onChange((value) => {
+            uniforms.uPuddleNoiseStrength.value = value;
+        });
+
+        const rainFolder = gui.addFolder('Rain Drops');
+        rainFolder.add(params, 'rainSpeed', 0.5, 10).name('Fall Speed');
+        rainFolder.add(params, 'rainOpacity', 0, 0.5).name('Opacity').onChange(value => {
+            rainMaterial.uniforms.uRainOpacity.value = value;
+        });
+        rainFolder.add(params, 'rainDropSize', 0.01, 0.2).name('Droplet Size').onChange(value => {
+            rainMaterial.uniforms.uRainDropSize.value = value;
+        });
+        rainFolder.add(params, 'rainBlurSteps', 1, 10, 1).name('Blur Quality').onChange(value => {
+            rainMaterial.uniforms.uRainBlurSteps.value = value;
+        });
+
+        animate();
+    </script>
+</body>
+
+</html>

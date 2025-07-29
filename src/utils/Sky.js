@@ -1,6 +1,7 @@
 import { sk } from 'element-plus/es/locales.mjs';
 import * as THREE from 'three';
 import { Sky } from "three/examples/jsm/objects/Sky";
+import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 
 let sky = null;
 
@@ -32,12 +33,12 @@ export default function addSky(scene, renderer, skyType = 'sun') {
         scene.add( sky );
 
         const effectController = {
-            turbidity: 10,//浑浊度
-            rayleigh: 3,//阳光散射，黄昏效果的程度
-            mieCoefficient: 0.005,//太阳对比度，清晰度
+            turbidity: 2,//浑浊度
+            rayleigh: 8,//阳光散射，黄昏效果的程度
+            mieCoefficient: 0.001,//太阳对比度，清晰度
             mieDirectionalG: 0.7,
-            elevation: 2,//太阳高度
-            azimuth: 180,//太阳水平方向位置
+            elevation: 4,//太阳高度
+            azimuth: 150,//太阳水平方向位置
             exposure: renderer.toneMappingExposure //光线昏暗程度
         };
 
@@ -49,7 +50,7 @@ export default function addSky(scene, renderer, skyType = 'sun') {
         uniforms[ 'mieDirectionalG' ].value = effectController.mieDirectionalG;
         const phi = THREE.MathUtils.degToRad( 90 - effectController.elevation );
         const theta = THREE.MathUtils.degToRad( effectController.azimuth );
-        sun.setFromSphericalCoords( 1, phi, theta );
+        sun.setFromSphericalCoords( 3, phi, theta );
         uniforms[ 'sunPosition' ].value.copy( sun );
         return;
     }
