@@ -5,20 +5,23 @@
     <div class="menu">
       <el-tooltip placement="left">
         <template #content>
-          <div @click="show(1)">中国地图</div>
-          <div @click="show(2)">机房监控</div>
+          <div @click="show(1)">旋转地球</div>
+          <div @click="show(2)">中国地图</div>
+          <div @click="show(3)">机房监控</div>
           <!-- <div @click="show(3)">灯光建筑</div> -->
         </template>
         <span>案例切换</span>
       </el-tooltip>
     </div>
-    <Map v-if="flag == 1"/>
-    <Building v-if="flag == 2"/>
-    <city v-if="flag == 3"/>
+    <Earth v-if="flag == 1"/>
+    <Map v-if="flag == 2"/>
+    <Building v-if="flag == 3"/>
+    <city v-if="flag == 99"/>
   </div>
 </template>
 
 <script setup>
+import Earth from "./earth/index.vue"
 import Map from "./map.vue"
 import Building from "./building.vue";
 import city from "./city.vue";
